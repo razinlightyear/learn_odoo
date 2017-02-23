@@ -18,8 +18,9 @@ class LibraryBook(models.Model):
 		)
 	notes = fields.Text('Internal Notes')
 	state = fields.Selection(
-		[('draft','Not Available'),
+		[('draft','UnAvailable'),
 		 ('available','Available'),
+		 ('borrowed', 'Borrowed'),
 		 ('lost', 'Lost')],
 		 'State')
 	description = fields.Html(
@@ -70,6 +71,13 @@ class LibraryBook(models.Model):
 	)
 	ref_doc_id = fields.Reference(selection='_referencable_models',string='Reference Document')
 
+	# Validations
+	_sql_constraints = [
+		('name_uniq',
+		 'UNIQUE (name)',
+		 'Book title must be unique.')
+	]
+
 	def name_get(self):
 		result = []
 		for record in self:
@@ -78,14 +86,7 @@ class LibraryBook(models.Model):
 				)
 		return result
 
-
-	# Validations
-	_sql_constraints = [
-		('name_uniq',
-		 'UNIQUE (name)',
-		 'Book title must be unique.')
-	]
-
+	# Validation
 	@api.constrains('date_release')
 	def _check_release_date(self):
 		for r in self:
@@ -119,6 +120,33 @@ class LibraryBook(models.Model):
 	def _referencable_models(self):
 		models = self.env['res.request.link'].search([])
 		return [(x.object, x.name) for x in models]
+
+	# check weather a state transition is allowed
+	@api.model
+	def is_allowed_transition(self, old_state, new_state):
+		allowed = [('draft', 'available'),
+				   ('available', 'borrowed'),
+				   ('borrowed', 'available'),
+				   ('available', 'lost'),
+				   ('borrowed', 'lost'),
+				   ('lost', 'available')
+		]
+		return (old_state, new_state) in allowed
+
+	# change the state of some books
+	@api.multi
+	def change_state(self, new_state):
+		for book in self:
+			if book.is_allowed_transition(book.state, new_state):
+				book.state = new_state
+			else:
+				continue
+
+	# How to access another model
+	@api.model
+	def get_all_library_members(self):
+		library_member_model = self.env['library.member']
+		return library_member_model.search([])
 
 	class BaseArchive(models.AbstractModel):
 		_name = 'base.archive'
