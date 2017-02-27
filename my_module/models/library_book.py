@@ -70,6 +70,8 @@ class LibraryBook(models.Model):
 		compute_sudo=False,
 	)
 	ref_doc_id = fields.Reference(selection='_referencable_models',string='Reference Document')
+	manager_remarks = fields.Text('Manager Remarks') # added from pg. 118
+	isbn = fields.Char('ISBN')
 
 	# Validations
 	_sql_constraints = [
@@ -78,12 +80,16 @@ class LibraryBook(models.Model):
 		 'Book title must be unique.')
 	]
 
+	# Used with searching books
 	def name_get(self):
 		result = []
 		for record in self:
-			result.append(
-				(record.id, u"%s (%s)" % (record.name, record.date_released))
-				)
+			authors = book.author_ids.mapped('name')
+			name = u'%s (%s)' % (book.title,u', '.join(authors))
+			result.append((book.id, name))
+			#result.append(
+			#	(record.id, u"%s (%s)" % (record.name, record.date_released))
+			#	)
 		return result
 
 	# Validation
@@ -148,6 +154,55 @@ class LibraryBook(models.Model):
 		library_member_model = self.env['library.member']
 		return library_member_model.search([])
 
+	# Prevent users without permission from creating,updating manager_remarks
+	@api.model
+	@api.returns('self', lambda rec: rec.id)
+	def create(self, values):
+		if not self.user_has_groups('library.group_library_manager'):
+			if 'manager_remarks' in values:
+				raise exceptions.UserError(
+					'You are not allowed to modify '
+					'manager_remarks'
+				)
+		return super(LibraryBook, self).create(values)
+
+	@api.multi
+	def write(self, values):
+		if not self.user_has_groups('library.group_library_manager'):
+			if 'manager_remarks' in values:
+				raise exceptions.UserError(
+					'You are not allowed to modify '
+					'manager_remarks'
+
+				)
+		return super(LibraryBook, self).write(values)
+
+	@api.model
+	def fields_get(self,allfields=None,write_access=True,attributes=None):
+		fields = super(LibraryBook, self).fields_get(
+		allfields=allfields, 
+			write_access=write_access, 
+			attributes=attributes
+		)
+		if not self.user_has_groups(
+				'library.group_library_manager'):
+			if 'manager_remarks' in fields:
+				fields['manager_remarks']['readonly'] = True
+		return fields  # Missing in the book
+
+	@api.model
+	def _name_search(self, name='', args=None, operator='ilike', limit=100, name_get_uid=None):
+		args = [] if args is None else args.copy()
+		if not(name == '' and operator == 'ilike'):
+			args += ['|', '|', 
+					 ('name', operator, name),
+					 ('isbn', operator, name),
+					 ('author_ids.name', operator, name)
+					 ]
+		return super(LibraryBook, self)._name_search(name='', args=args, operator='ilike', 
+										limit=limit, name_get_uid=name_get_uid)
+
+
 	class BaseArchive(models.AbstractModel):
 		_name = 'base.archive'
 		active = fields.Boolean(default=True)
@@ -155,6 +210,7 @@ class LibraryBook(models.Model):
 		def do_archive(self):
 			for record in self:
 				record.active = not record.active
+
 
 class ResPartner(models.Model):
 	_inherit = 'res.partner'
@@ -172,7 +228,7 @@ class ResPartner(models.Model):
 class LibraryMember(models.Model):
 	_name = 'library.member'
 	_inherits = {'res.partner':'partner_id'}
-	partner_id = fields.Many2one('res.partner',ondelete='cascade')
+	partner_id = fields.Many2one('res.partner',ondelete='cascade',required=True) # It gives me a warning if I don't make this required
 
 	date_start = fields.Date('Member Since')
 	date_end = fields.Date('Termination Date')
