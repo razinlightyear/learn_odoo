@@ -1,0 +1,29 @@
+-
+  Test LibraryBook.change_state  # Test description
+-
+  !context
+    uid: 'base.user_demo' # Change the user
+-
+  create book in draft state  # Create a book
+-
+  !record {model: library.book, id: testbook}:
+    - name: Test Book
+    - state: draft
+-
+  call change_state to make book available  # Call the change_state
+-
+  !python {model: library.book, id: testbook}: |  # | is used to keep the whitespace since it's Python
+    self.change_state('available')
+-
+  !assert {model: library.book, id: testbook, string: wrong state}:
+    - state == 'available'
+-
+  try to call change_state to make book draft  # Add a step calling the change_state method with a forbidden state
+-
+  !python {model: library.book, id: testbook}: |
+    self.change_state('draft')
+-
+  check the book is still available
+-
+  !assert {model: library.book, id: testbook, string: wrong state}:
+    - state == 'available'
